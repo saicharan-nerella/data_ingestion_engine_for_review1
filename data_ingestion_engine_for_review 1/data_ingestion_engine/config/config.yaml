@@ -1,0 +1,374 @@
+# =====================================
+# Unstructured Data Ingestion Configuration
+# =====================================
+
+# =========================================================
+# UNSTRUCTURED PIPELINE SOURCE — S3 Bucket
+# =========================================================
+unstructured:
+  source:
+    bucket: goml-aimatic-unstructured-readers
+    prefix: ""                       # Empty prefix to scan entire bucket
+    region: us-east-1
+    files:                          # Optional: specify exact files
+      - "NN9490-8266_protocol_V1.0__31_Oct_2025 1.pdf"
+
+  # =========================================================
+  # TARGET — Where to write parsed output
+  # =========================================================
+  target:
+    bucket: goml-aimatic-unstructured-readers-output
+    output_prefix: "unstructured/protocol_test1/"
+    region: us-east-1
+    batch_mode: false
+
+# =========================================================
+# SETTINGS
+# =========================================================
+settings:
+  retries: 2
+  retry_delay_seconds: 60
+  parallelism: 1
+  logging_level: INFO                # DEBUG | INFO | WARNING | ERROR
+
+
+# =====================================
+# Structured Data Ingestion Configuration
+# =====================================
+
+# =========================================================
+# STRUCTURED PIPELINE — Batch Processing
+# =========================================================
+structured:
+  # ── BATCH: DATABASES ────────────────────────────────────
+  batch:
+    databases:
+      - name: pagila-test-database
+        enabled: true
+        type: postgres                  # PostgreSQL database
+        source:
+          host: ai-matictest.ck7ismau273z.us-east-1.rds.amazonaws.com  # RDS endpoint
+          port: 5432                    # PostgreSQL default port
+          database: postgres            # Database name (from RDS)
+          username: postgres            # Master username (from RDS)
+          password: YOUR_RDS_PASSWORD   # Get from AWS Secrets Manager or set your own
+          tables:
+            # ── Core Business Tables (16,044 total records) ──
+            - customer                  # 599 customers
+            - rental                    # 16,044 rental transactions
+            - payment                   # 14,596 payment records
+            - film                      # 1,000 films
+            - inventory                 # 4,581 inventory items
+            
+            # ── Reference Tables (~230 records) ──
+            - actor                     # 200 actors
+            - category                  # 16 categories
+            - language                  # 6 languages
+            - store                     # 2 stores
+            - staff                     # 2 staff members
+        load:
+          mode: full                    # Currently only 'full' is supported
+          batch_size: 10000
+          # Optional: For future incremental load support
+          # incremental_column: last_update
+          # last_watermark: "2024-01-01 00:00:00"
+          # checkpoint: null
+
+    # ── BATCH: CLOUD STORAGE ────────────────────────────────
+    cloud:
+      - name: s3-structured-test
+        enabled: true
+        provider: aws
+        source:
+          bucket: goml-aimatic-unstructured-readers
+          prefix: ""
+          region: us-east-1
+          files:
+            - "employee_details.csv"
+          format: csv              # csv | json | parquet
+        load:
+          mode: full 
+          last_watermark: ""
+          checkpoint: null
+
+    # ── BATCH: REST APIs ─────────────────────────────────────
+    # Read by structured_readers/batch_api_read.py (BatchAPIReader).
+    # Selected via Glue parameter: --reader batch_api
+    apis:
+      # ══════════════════════════════════════════════════════════════════════
+      # LIVE VALIDATION SOURCE — a real, public, no-auth test API (returns 10
+      # fake user records with name/email/phone fields) used to genuinely
+      # exercise --reader batch_api end-to-end, including through the
+      # orchestration DAG. Safe to leave enabled: read-only, no credentials.
+      # ══════════════════════════════════════════════════════════════════════
+      - name: jsonplaceholder-users
+        enabled: true
+        method: GET
+        source:
+          url: https://jsonplaceholder.typicode.com/users
+          auth:
+            type: none
+          pagination:
+            type: none
+        load:
+          mode: full
+
+      # ══════════════════════════════════════════════════════════════════════
+      # EXAMPLE API SOURCE — replace url/auth with your real endpoint
+      # ══════════════════════════════════════════════════════════════════════
+      - name: example-api                # Used to tag records (_api_name) and name the output file
+        enabled: false                   # Set true to activate this API source
+        method: GET                      # GET | POST
+        source:
+          url: https://api.example.com/v1/resource   # REQUIRED — full endpoint URL
+          headers:                       # Optional static headers (auth headers are added automatically below)
+            Content-Type: application/json
+          auth:
+            type: none                   # none | basic | bearer | api_key | oauth2
+            # ── bearer ── (type: bearer)
+            # token: YOUR_BEARER_TOKEN                # or leave unset and export API_BEARER_TOKEN instead
+            # ── basic ── (type: basic)
+            # username: YOUR_USERNAME
+            # password: YOUR_PASSWORD
+            # ── api_key ── (type: api_key)
+            # key_name: X-API-Key
+            # key_value: YOUR_API_KEY                 # or leave unset and export API_KEY instead
+            # ── oauth2 client-credentials flow ── (type: oauth2)
+            # token_url: https://api.example.com/oauth/token
+            # client_id: YOUR_CLIENT_ID
+            # client_secret: YOUR_CLIENT_SECRET
+            # scope: read
+          pagination:
+            type: none                   # none | page_number | offset | cursor
+            page_param: page              # query param carrying page number / offset / cursor value
+            size_param: page_size         # query param carrying the page size (optional)
+            size: 100                     # page size (optional)
+          # body: {}                     # Only used when method: POST — sent as JSON request body
+        load:
+          mode: full                     # full | incremental
+          # incremental_param: updated_since        # query param used to pass the checkpoint value (incremental only)
+          # checkpoint:
+          #   type: local                            # local | s3
+          #   path: /tmp/checkpoints/example-api.txt  # or s3://bucket/checkpoints/example-api.txt
+
+  # ── STREAMING ────────────────────────────────────────────
+  # Read by structured_readers/streaming_*.py. Selected via Glue parameter:
+  # --reader streaming_kafka | streaming_cloud | streaming_socket | streaming_webhook
+  # (one dict per type, not a list — each reader opens one connection, unlike
+  # the batch sources above which can enumerate several named sources.)
+  streaming:
+    kafka:
+      enabled: false                     # Set true to activate; also needs confluent-kafka installed
+      bootstrap_servers: localhost:9092  # REQUIRED — comma-separated host:port list
+      topics:
+        - example-topic                  # REQUIRED — at least one topic
+      consumer_group: aimatic-consumer   # REQUIRED
+      auto_offset_reset: earliest        # earliest | latest
+      batch_size: 500                    # max messages per yielded micro-batch
+      poll_timeout_ms: 1000
+
+    cloud:
+      enabled: false                     # Set true to activate; needs the matching provider SDK installed
+      provider: pubsub                   # pubsub | kinesis | eventhub
+      # ── pubsub ── (provider: pubsub; needs google-cloud-pubsub)
+      project: YOUR_GCP_PROJECT
+      subscription: YOUR_SUBSCRIPTION_ID
+      # ── kinesis ── (provider: kinesis; uses boto3, already a dependency)
+      # stream_name: YOUR_KINESIS_STREAM
+      # region: us-east-1
+      # ── eventhub ── (provider: eventhub; needs azure-eventhub, azure-identity)
+      # namespace: YOUR_EVENTHUB_NAMESPACE
+      # eventhub_name: YOUR_EVENTHUB_NAME
+      # consumer_group: "$Default"
+      max_messages: 500
+
+    socket:
+      enabled: false                     # Set true to activate — no extra dependency, stdlib socket
+      host: 0.0.0.0
+      port: 9999                         # REQUIRED
+      protocol: tcp                      # tcp | udp
+      buffer_bytes: 4096
+      batch_size: 100                    # max records per yielded micro-batch
+
+    webhook:
+      enabled: false                     # Set true to activate; also needs fastapi + uvicorn installed
+      host: 0.0.0.0
+      port: 8080
+      path: /webhook
+      buffer_size: 100                   # max records per yielded micro-batch
+      # secret_header: YOUR_HMAC_SECRET  # optional — validates the X-Signature header when set
+
+  # NOTE: no target/writer config here for the structured pipeline.
+  # Target (write_cloud / S3, etc.) is chosen by the user via the UI and passed
+  # as Glue job parameters instead — see core/pipeline_builder.py and the
+  # --writer / --writer_bucket / --writer_prefix / --writer_format / --writer_region
+  # parameters documented in main/aimatic.py.
+  #
+  # Same for Lambda architecture's Speed-layer tuning: --architecture is a
+  # Glue job parameter (WHAT to run), not config.yaml data, so
+  # --speed_layer_window_seconds is too — passed as a Glue parameter and
+  # threaded into the architecture by core/pipeline_builder.py, not read
+  # from this file. See main/aimatic.py for the parameter, and
+  # architecture/lambda_architecture/speed_layer.py for how it's used.
+
+# =========================================================
+# DATA VAULT — Hub / Link / Satellite entity definitions
+# =========================================================
+# Read by architecture/data_vault_architecture/pipeline.py when
+# --architecture data_vault is selected. Without this section (or with it
+# empty), Data Vault loads zero hubs/links/satellites and reports success
+# having written nothing — not a crash, a silent no-op — so this is
+# required, not optional, for that architecture to actually do anything.
+#
+# Matched against jsonplaceholder-users (structured.batch.apis above),
+# whose records carry a numeric `id` plus descriptive fields. There's no
+# `links` entry here because a Link needs TWO related business keys on the
+# same record (e.g. customer_id + order_id from an orders table) — this
+# single-entity test source only has one. A links entry looks like:
+#   links:
+#     - hub_a: customer_id
+#       hub_b: order_id
+#       source: orders
+data_vault:
+  hubs:
+    - business_key: id        # field name on the staged records
+      source: jsonplaceholder-users
+  satellites:
+    - business_key: id        # which hub this satellite describes
+      attribute_columns: [name, username, email, phone, website]
+      source: jsonplaceholder-users
+
+# =========================================================
+# PII MASKING — Data Privacy & Compliance
+# =========================================================
+pii_masking:
+  enabled: true                           # Enable/disable PII masking
+  strategy: redact                        # Strategy: sha256 | redact | partial
+  sensitive_columns:                      # Columns to mask (leave empty to use defaults)
+    # ── Global PII Fields ────────────────────────────────
+    - email
+    - phone
+    - salary
+# =========================================================
+# ALERTING — Monitoring & Notifications
+# =========================================================
+# Channel-agnostic: alerts/notification_service.py never knows which
+# channel is in use. alerts/channel_senders.py reads `channel` below and
+# wires up the matching sender (sns/slack/teams/email/pagerduty) from the
+# config block of the same name — the pipeline code never changes when you
+# switch channels, only this file does.
+alerting:
+  enabled: true
+
+  # Active channel. Named options with rich, native handling:
+  # sns | ses | sqs | slack | teams | email | mail | pagerduty | webhook
+  # (leave blank/omit to log events only, with no delivery). Or set
+  # `channels: [sns, slack]` instead of `channel` to deliver to more than
+  # one at once — see alerts/channel_senders.py.
+  #
+  # Any OTHER name also works — channels aren't limited to the named list
+  # above. Give it its own config block with a `url` (and optionally
+  # `method`, `headers`, `body_template` — see build_webhook_sender in
+  # alerts/channel_senders.py) and it's delivered as a generic webhook,
+  # the same way `webhook:` itself is. This is what makes a platform this
+  # file has never heard of (Discord, Opsgenie, Webex, a custom internal
+  # endpoint, ...) work without writing new code — e.g.:
+  #   channel: discord
+  #   discord:
+  #     url: https://discord.com/api/webhooks/...
+  #     body_template:
+  #       content: "$message"
+  channel: sns
+
+  # Which pipeline events raise a notification at all, independent of which
+  # channel is selected above.
+  # NOTE: named `notify_on`, not `on` — PyYAML's default (1.1) resolver
+  # parses an unquoted `on:` key as the boolean True, not the string "on",
+  # which would silently break event gating.
+  notify_on:
+    ingestion_failure: true            # job failure
+    ingestion_success: true            # job success
+    performance: true                  # core/alert_rules.py's pipeline_timeout check reuses this event — see rules.pipeline_timeout below
+    high_error_rate: true              # core/alert_rules.py — fires for real, see rules.high_error_rate below
+    low_throughput: false              # core/alert_rules.py — also needs rules.low_throughput.enabled: true below to ever be computed
+    # The three below are still dormant: notification_service.py knows how
+    # to format them, and this gate would correctly let them through, but
+    # nothing in the pipeline code calls .notify() with these event types
+    # yet — no reader/writer/architecture currently detects a data-volume
+    # anomaly or tracks retries. Setting these to true has no visible
+    # effect today; it's not that the gate is broken, there's just no
+    # emitter behind it yet.
+    data_volume: false
+    retry: false
+    sla_breach: false
+
+  # ── Channel-specific settings ──────────────────────────
+  # Only the block matching `channel` above needs real values — the others
+  # sit inert until you switch to them.
+  sns:
+    topic_arn: arn:aws:sns:us-east-1:855738613861:goml-aimatic-alert
+    region: us-east-1
+
+  # ses:
+  #   from_addr: alerts@example.com          # must be a verified SES identity
+  #   to_addrs: [oncall@example.com]         # each must be verified too, in SES sandbox mode
+  #   region: us-east-1
+  # sqs:
+  #   queue_url: https://sqs.us-east-1.amazonaws.com/123456789012/aimatic-alerts
+  #   region: us-east-1
+  # slack:
+  #   webhook_url: https://hooks.slack.com/services/...
+  # teams:
+  #   webhook_url: https://outlook.office.com/webhook/...
+  # email:
+  #   smtp_host: smtp.example.com
+  #   smtp_port: 587
+  #   username: alerts@example.com
+  #   password: YOUR_SMTP_PASSWORD
+  #   from_addr: alerts@example.com
+  #   to_addrs: [oncall@example.com]
+  #   use_tls: true
+  # pagerduty:
+  #   routing_key: YOUR_ROUTING_KEY
+  # webhook:                                  # generic — or use any other name (discord, opsgenie, ...), see above
+  #   url: https://example.com/your-webhook
+  #   method: POST                            # optional, default POST
+  #   headers:                                # optional — e.g. an auth token the receiver requires
+  #     Authorization: Bearer YOUR_TOKEN
+  #   body_template:                          # optional — omit to send the full structured payload as-is
+  #     content: "$message"                   # "$subject" / "$message" are substituted with the real text
+  #     username: AIMATIC Alerts
+
+  # ── ALERT RULES ───────────────────────────────────────
+  # Real, working checks — see core/alert_rules.py. Each is evaluated once
+  # per completed run (Medallion and Lambda both run as one-shot Glue batch
+  # jobs, not a long-running service — there's no continuous "keep checking
+  # every N seconds" process for a sliding window to mean anything within).
+  rules:
+    high_error_rate:
+      threshold: 0.05                  # Alert if >5% of this run's records failed
+      window: 300                      # NOT USED — batch jobs have no sliding window to check; kept only so this key doesn't need to be deleted
+
+    pipeline_timeout:
+      threshold_seconds: 3600          # Alert if this run took >1 hour — reuses the "performance" notify_on gate above
+
+    low_throughput:
+      threshold_rows_per_min: 1000     # Alert if this run processed <1000 rows/min
+      enabled: false                   # Off by default — throughput varies far more by source size than the other two rules do
+
+  # ── SEVERITY LEVELS ───────────────────────────────────
+  # Keyed by the exact event_type strings notification_service.py emits
+  # (see alerts/notification_service.py's _format()) — critical/high/medium/low.
+  # Read by NotificationService.notify() and, today, actually used by
+  # build_pagerduty_sender (mapped to PagerDuty's own critical/error/
+  # warning/info enum) — other channels receive it in the payload but don't
+  # currently change behavior based on it.
+  severity:
+    ingestion_failure: critical
+    ingestion_success: low
+    performance: medium
+    high_error_rate: high
+    low_throughput: low
+    data_volume: medium
+    retry: medium
+    sla_breach: high

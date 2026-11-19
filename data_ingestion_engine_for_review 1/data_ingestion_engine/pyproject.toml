@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "data-ingestion-engine"
+version = "1.0.0"
+description = "Pluggable data ingestion framework with swappable architecture patterns"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9",
+    "pymysql>=1.1",
+    "snowflake-connector-python>=3.0",
+    "confluent-kafka>=2.3",
+    "google-cloud-storage>=2.10",
+    "boto3>=1.28",
+    "azure-storage-blob>=12.0",
+    "delta-spark>=3.0",
+    "pyarrow>=14.0",
+    "fastapi>=0.104",
+    "uvicorn>=0.24",
+    "apache-airflow>=2.7",
+    "prefect>=2.14",
+    "dagster>=1.5",
+    "apscheduler>=3.10",
+    "requests>=2.31",
+    "watchtower>=3.0",
+    "ddtrace>=2.0",
+    "great-expectations>=0.18",
+    "beautifulsoup4>=4.12",
+    "docling>=1.0",
+    "docling-core>=1.0",
+    "pdfplumber>=0.10",
+    "Pillow>=10.0",
+    "mutagen>=1.47",
+    "pymediainfo>=6.0",
+    "easyocr>=1.7",
+    "pytesseract>=0.3.10",
+    "paddleocr>=2.7",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I"]

@@ -1,0 +1,107 @@
+# =============================================================================
+# DEPENDENCIES FOR STRUCTURED + UNSTRUCTURED PIPELINES
+# =============================================================================
+# This requirements.txt supports both structured and unstructured pipelines.
+# For unstructured: Document parsing handled via HTTP calls to ECS Fargate service.
+# For structured: Database readers, data transformation, and cloud writers.
+
+# Core configuration and utilities
+pyyaml>=6.0                 # SAFE: Configuration parsing
+python-dotenv>=1.0          # SAFE: Environment variable loading
+
+# HTTP communication (for ECS integration - unstructured pipeline)
+requests>=2.31              # SAFE: HTTP calls to ECS parsing service
+
+# AWS SDK (already available in Glue environment)
+boto3>=1.28                 # SAFE: S3, Kinesis, CloudWatch (pre-installed in Glue)
+# watchtower>=3.0             # OPTIONAL: only for --logger cloudwatch (logger/cloudwatch_logger.py)
+                              # — adds a handler to a separate, stable log group; add via
+                              # --additional-python-modules only if you use that logger backend.
+                              # --logger json/text need no extra dependency at all.
+
+# HTML parsing (lightweight, no binaries)
+beautifulsoup4>=4.12        # SAFE: HTML/XML parsing
+
+# =============================================================================
+# STRUCTURED PIPELINE DEPENDENCIES
+# =============================================================================
+
+# Database connectivity
+sqlalchemy>=2.0             # REQUIRED: batch_database reader AND target.write_database (DatabaseWriter)
+psycopg2-binary>=2.9        # REQUIRED: PostgreSQL driver (pagila database; also DatabaseWriter db_type=postgres)
+pymysql>=1.1                # MySQL driver (also DatabaseWriter db_type=mysql)
+snowflake-connector-python>=3.0  # Snowflake driver (optional)
+# DatabaseWriter also supports db_type=oracle/sqlserver, but neither driver is
+# listed here (add via --additional-python-modules only if you actually need
+# them): cx_Oracle needs the Oracle Instant Client, and pyodbc needs a system
+# ODBC driver — neither ships in AWS Glue's managed Python-shell environment by
+# default, so those two db_types need a custom Glue container image, not just
+# a pip install, to actually run. postgres/mysql need no such extra step.
+
+# Data formats and serialization
+pyarrow>=14.0               # REQUIRED: Parquet format support (CloudWriter)
+
+# Cloud storage (optional - for non-AWS providers)
+google-cloud-storage>=2.10  # GCP Cloud Storage writer (optional)
+azure-storage-blob>=12.0    # Azure Blob Storage writer (optional)
+
+# Streaming (optional - only install the one matching your --reader choice)
+confluent-kafka>=2.3        # streaming_kafka reader
+google-cloud-pubsub>=2.18   # streaming_cloud reader, provider: pubsub
+azure-eventhub>=5.11        # streaming_cloud reader, provider: eventhub
+azure-identity>=1.15        # streaming_cloud reader, provider: eventhub
+fastapi>=0.104               # streaming_webhook reader
+uvicorn>=0.24                # streaming_webhook reader
+# streaming_socket needs nothing extra (stdlib socket); streaming_cloud's
+# provider: kinesis needs nothing extra either (boto3, already a dependency)
+
+# Data lake formats (optional)
+delta-spark>=3.0            # Delta Lake format (optional)
+
+# Testing
+pytest>=7.4                # SAFE: Test framework
+pytest-mock>=3.12           # SAFE: Mock testing utilities
+
+# =============================================================================
+# REMOVED BINARY DEPENDENCIES (UNSAFE FOR GLUE)
+# =============================================================================
+# These dependencies cause import errors in AWS Glue Python Shell:
+# 
+# REMOVED - Binary Dependencies:
+# docling>=1.0                # UNSAFE: Causes binary conflicts, tesserocr imports
+# docling-core>=1.0           # UNSAFE: Core binary dependencies
+# pdfplumber>=0.10            # UNSAFE: Requires native PDF libraries
+# Pillow>=10.0                # UNSAFE: Image processing binaries
+# mutagen>=1.47               # UNSAFE: Audio codec binaries
+# pymediainfo>=6.0            # UNSAFE: Video codec binaries
+# easyocr>=1.7                # UNSAFE: OCR binary dependencies
+# pytesseract>=0.3.10         # UNSAFE: Tesseract OCR wrapper binaries
+# paddleocr>=2.7              # UNSAFE: PaddleOCR binary dependencies
+#
+# REMOVED - Non-Essential for Glue Job:
+# sqlalchemy>=2.0             # Not needed for unstructured pipeline
+# psycopg2-binary>=2.9        # Not needed for unstructured pipeline
+# pymysql>=1.1                # Not needed for unstructured pipeline
+# snowflake-connector-python>=3.0  # Not needed for unstructured pipeline
+# confluent-kafka>=2.3        # Not needed for unstructured pipeline
+# google-cloud-storage>=2.10  # Not needed for unstructured pipeline
+# azure-storage-blob>=12.0    # Not needed for unstructured pipeline
+# delta-spark>=3.0            # Not needed for unstructured pipeline
+# pyarrow>=14.0               # Not needed for unstructured pipeline
+# fastapi>=0.104              # Not needed for unstructured pipeline
+# uvicorn>=0.24               # Not needed for unstructured pipeline
+# apache-airflow>=2.7         # Not needed for unstructured pipeline
+# prefect>=2.14               # Not needed for unstructured pipeline
+# dagster>=1.5                # Not needed for unstructured pipeline
+# apscheduler>=3.10           # Not needed for unstructured pipeline
+# watchtower>=3.0             # Not needed for unstructured pipeline
+# ddtrace>=2.0                # Not needed for unstructured pipeline
+# great-expectations>=0.18    # Not needed for unstructured pipeline
+#
+# =============================================================================
+# USAGE NOTES
+# =============================================================================
+# - Document parsing now handled by ECS Fargate service via HTTP
+# - Glue job only orchestrates and communicates with ECS
+# - No --additional-python-modules needed for binary dependencies
+# - Minimal package size for faster Glue job startup
